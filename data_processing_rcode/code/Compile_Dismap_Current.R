@@ -255,6 +255,14 @@ eventoodd <- function(x) {
 #### PULL IN AND EDIT RAW DATA FILES ####
 #--------------------------------------------------------------------------------------#
 
+# AFSC Bottom Trawl Data --------------------------------------------
+
+# created in download_ak.R
+# replaces everything (?) in if (FALSE) below!
+read.csv(file = here::here("data_processing_rcode/data/afsc.csv")) # you can call it anything you like, but I figured that this would be easy to find and rename
+
+# Didn't want to delete this, but needed it to not run. - EHM 4/2024
+if (FALSE) {
 # Compile AI =====================================================
 print("Compile AI")
 
@@ -879,7 +887,7 @@ rm(files, nbs_data, nbs_strata)
 #   rm(test, test2, p1, p2, p3, p4)
 # }
 # rm(files, bsss_data, bsss_strata)
-
+}
 
 # Compile WCTRI ===========================================================
 print("Compile WCTRI")
