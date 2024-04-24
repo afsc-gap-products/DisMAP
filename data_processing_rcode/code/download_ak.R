@@ -156,38 +156,21 @@ species <- readr::read_csv(file = here::here("data_processing_rcode/data/gap_pro
 
 # Wrangle data -----------------------------------------------------------------
 
-# come up with full combination of what species should be listed for what hauls/surveys
-# for zero-filled data, all species caught in a survey need to have zero or non-zero row entries for a haul
-comb <- dplyr::full_join(
-  x = dplyr::left_join(catch, haul, by = "HAULJOIN") %>%
-    dplyr::select(SURVEY_DEFINITION_ID, SPECIES_CODE) %>%
-    dplyr::distinct(),
-  y = haul %>%
-    dplyr::select(SURVEY_DEFINITION_ID, HAULJOIN) %>%
-    dplyr::distinct(), 
-  by = "SURVEY_DEFINITION_ID", 
-  relationship = "many-to-many"
-)
-
-# Join data to make a full zero-filled CPUE dataset
-dat <- comb %>% 
-  # add species data to unique species by survey table
-  dplyr::left_join(species, "SPECIES_CODE") %>% 
-  # add catch data
-  dplyr::full_join(catch, c("SPECIES_CODE", "HAULJOIN")) %>% 
-  # add haul data
-  dplyr::full_join(haul) %>% # , c("SURVEY_DEFINITION_ID", "HAULJOIN")
+### presence only data ---------------------------------------------------------
+dat <- 
+  # join haul and catch data to unique species by survey table
+  dplyr::full_join(haul, catch) %>% 
+  # join species data to unique species by survey table
+  dplyr::left_join(species) %>% 
   # modify zero-filled rows
   dplyr::mutate(
-    CPUE_KGKM2 = ifelse(is.null(CPUE_KGKM2), 0, CPUE_KGKM2),
+    CPUE_KGKM2 = ifelse(is.null(CPUE_KGKM2), 0, CPUE_KGKM2), # just in case
     CPUE_KGHA = CPUE_KGKM2/100, # Hectares
-    CPUE_NOKM2 = ifelse(is.null(CPUE_NOKM2), 0, CPUE_NOKM2),
+    CPUE_NOKM2 = ifelse(is.null(CPUE_NOKM2), 0, CPUE_NOKM2), # just in case
     CPUE_NOHA = CPUE_NOKM2/100, # Hectares
     COUNT = ifelse(is.null(COUNT), 0, COUNT),
     WEIGHT_KG = ifelse(is.null(WEIGHT_KG), 0, WEIGHT_KG), 
     region = dplyr::case_when( 
-      # I would suggest using the SURVEY_NAME or SURVEY column instead of the names you have. 
-      # They're fine, but a little simple. Ive recreated them here so things will hopefully mesh with your code - EHM 4/2024 # TOLEDO
       SURVEY_DEFINITION_ID == 78 ~ "Bering Sea Slope Survey", 
       SURVEY_DEFINITION_ID == 47 ~ "Gulf of Alaska", 
       SURVEY_DEFINITION_ID == 52 ~ "Aleutian Islands", 
@@ -195,86 +178,56 @@ dat <- comb %>%
       SURVEY_DEFINITION_ID == 143 ~ "Northern Bering Sea"
     )) 
 
+### zero filled data -----------------------------------------------------------
+
+# # come up with full combination of what species should be listed for what hauls/surveys
+# # for zero-filled data, all species caught in a survey need to have zero or non-zero row entries for a haul
+# comb <- dplyr::full_join(
+#   x = dplyr::left_join(catch, haul, by = "HAULJOIN") %>%
+#     dplyr::select(SURVEY_DEFINITION_ID, SPECIES_CODE) %>%
+#     dplyr::distinct(),
+#   y = haul %>%
+#     dplyr::select(SURVEY_DEFINITION_ID, HAULJOIN) %>%
+#     dplyr::distinct(), 
+#   by = "SURVEY_DEFINITION_ID", 
+#   relationship = "many-to-many"
+# )
+# 
+# # Join data to make a full zero-filled CPUE dataset 
+# 
+# dat <- comb %>% 
+#   # add species data to unique species by survey table
+#   dplyr::left_join(species, "SPECIES_CODE") %>% 
+#   # add catch data
+#   dplyr::full_join(catch, c("SPECIES_CODE", "HAULJOIN")) %>% 
+#   # add haul data
+#   dplyr::full_join(haul) %>% # , c("SURVEY_DEFINITION_ID", "HAULJOIN")
+#   # modify zero-filled rows
+#   dplyr::mutate(
+#     CPUE_KGKM2 = ifelse(is.null(CPUE_KGKM2), 0, CPUE_KGKM2),
+#     CPUE_KGHA = CPUE_KGKM2/100, # Hectares
+#     CPUE_NOKM2 = ifelse(is.null(CPUE_NOKM2), 0, CPUE_NOKM2),
+#     CPUE_NOHA = CPUE_NOKM2/100, # Hectares
+#     COUNT = ifelse(is.null(COUNT), 0, COUNT),
+#     WEIGHT_KG = ifelse(is.null(WEIGHT_KG), 0, WEIGHT_KG), 
+#     region = dplyr::case_when( 
+#       # I would suggest using the SURVEY_NAME or SURVEY column instead of the names you have. 
+#       # They're fine, but a little simple. Ive recreated them here so things will hopefully mesh with your code - EHM 4/2024 # TOLEDO
+#       SURVEY_DEFINITION_ID == 78 ~ "Bering Sea Slope Survey", 
+#       SURVEY_DEFINITION_ID == 47 ~ "Gulf of Alaska", 
+#       SURVEY_DEFINITION_ID == 52 ~ "Aleutian Islands", 
+#       SURVEY_DEFINITION_ID == 98 ~ "Eastern Bering Sea", 
+#       SURVEY_DEFINITION_ID == 143 ~ "Northern Bering Sea"
+#     )) 
+
 # data changes specific to DisMAP
-dat1 <- dat %>% 
-  dplyr::filter(!(SURVEY_DEFINITION_ID == 98 & STRATUM %in% c(90, 82))) %>% # remove stratum in EBS that are missing from 1982-1987. However, I would reconsider doing this, you loose out on so much data!  - EHM 4/2024 # TOLEDO
-  dplyr::filter(SURVEY_DEFINITION_ID != 78) %>% # remove bering sea slope survey 
-  dplyr::select(region, 
-                year = YEAR, 
-                Cruise = CRUISE, 
-                Haul = HAUL, 
-                lat = LATITUDE_DD_START, 
-                lon = LONGITUDE_DD_START, 
-                stratum = STRATUM, 
-                vesselID = VESSEL_ID, # you don't need this anymore, right? I can get it for you if you do, but this seems like a hold over from an earlier time- EHM 4/2024 # TOLEDO
-                # stratumarea = ----, # you don't need this anymore, right? I can get it for you if you do, but this seems like a hold over from an earlier time- EHM 4/2024 # TOLEDO
-                depth = DEPTH_M, 
-                spp = SCIENTIFIC_NAME, # since you have worms codes here, I don't think you need these anymore? we should just be able to bind to your pre-approved species list?  - EHM 4/2024 # TOLEDO
-                common = COMMON_NAME, # since you have worms codes here, I don't think you need these anymore? we should just be able to bind to your pre-approved species list?  - EHM 4/2024 # TOLEDO
-                wtcpue = CPUE_KGHA, # I would consider moving everthing from HA to KM2 - EHM 4/2024 # TOLEDO
-                worms = WORMS# I've added this column
-  ) %>% 
-  # remove rows that are eggs
-  dplyr::filter(spp != "" &
-                  # remove all spp that contain the word "egg"
-                  !grepl("egg", spp),
-                !grepl("Polychaete tubes", spp)) %>%   
-  # if you choose to keep the common name column - EHM 4/2024 # TOLEDO
-  dplyr::mutate(
-    stratumarea = NA, # remvoed above because the new data tables dont provide this, but I can get it for you if you need it. - EHM 4/2024 # TOLEDO
-    # Create a unique haulid
-    haulid = paste(formatC(vesselID, width=3, flag=0), Cruise, formatC(Haul, width=3, flag=0), sep='-'), 
-    lon = ifelse(lon > 0, lon - 360, lon), 
-    # change -9999 wtcpue to NA
-    # wtcpue = ifelse(wtcpue == "-9999", NA, wtcpue),  # hopefully not in there anymore?? please let me know if you find any of these hanging around!  - EHM 4/2024 # TOLEDO
-    
-    # adjust spp names
-    # add species names for two rockfish complexes
-    spp = ifelse(grepl("Rougheye and Blackspotted Rockfish Unid.", common), "Sebastes melanostictus and S. aleutianus", spp),
-    spp = ifelse(grepl("Dusky and Dark Rockfishes Unid.", common), "Sebastes variabilis and S. ciliatus", spp), 
-    # catch A. stomias and A. evermanii (as of 2018 both spp appear as "valid" so not sure why they are being changed)
-    spp = ifelse(grepl("Atheresthes", spp), "Atheresthes stomias and A. evermanni", spp), 
-    # catch L. polystryxa (valid in 2018), and L. bilineata (valid in 2018)
-    spp = ifelse(grepl("Lepidopsetta", spp), "Lepidopsetta sp.", spp),
-    # catch M. jaok (valid in 2018), M. niger (valid in 2018), M. polyacanthocephalus (valid in 2018), M. quadricornis (valid in 2018), M. verrucosus (changed to scorpius), M. scorpioides (valid in 2018), M. scorpius (valid in 2018) (M. scorpius is in the data set but not on the list so it is excluded from the change)
-    #spp = ifelse(grepl("Myoxocephalus", spp ) & !grepl("scorpius", spp), "Myoxocephalus sp.", spp),
-    # catch B. maculata (valid in 2018), abyssicola (valid in 2018), aleutica (valid in 2018), interrupta (valid in 2018), lindbergi (valid in 2018), mariposa (valid in 2018), minispinosa (valid in 2018), parmifera (valid in 2018), smirnovi (valid in 2018), cf parmifera (Orretal), spinosissima (valid in 2018), taranetzi (valid in 2018), trachura (valid in 2018), violacea (valid in 2018)
-    # B. panthera is not on the list of spp to change
-    spp = ifelse(grepl("Bathyraja", spp), 'Bathyraja sp.', spp),
-    # catch S. melanostictus and S. aleutianus (blackspotted & rougheye), combined into one complex
-    spp = ifelse(grepl("Sebastes melanostictus", spp)|grepl("Sebastes aleutianus", spp), "Sebastes melanostictus and S. aleutianus", spp),
-    # catch S. variabilis and S. ciliatus (dusky + dark rockfish), combined into one complex
-    spp = ifelse(grepl("Sebastes variabilis", spp)|grepl("Sebastes ciliatus", spp), "Sebastes variabilis and S. ciliatus", spp), 
-    spp = ifelse(grepl("Hippoglossoides", spp), "Hippoglossoides elassodon and H. robustus", spp)
-  ) %>% 
-  # dplyr::select(region, haulid, year, lat, lon, stratum, stratumarea, depth, spp, wtcpue) %>% # Should be redundant
-  readr::type_convert(col_types = cols(
-    lat = col_double(),
-    lon = col_double(),
-    year = col_integer(),
-    wtcpue = col_double(),
-    spp = col_character(),
-    depth = col_integer(),
-    haulid = col_character()
-  )) %>% 
-  dplyr::group_by(region, haulid, stratum, stratumarea, year, lat, lon, depth, spp) %>% 
-  dplyr::summarise(wtcpue = sum(wtcpue, na.rm = TRUE)) %>% 
-  # Calculate a corrected longitude for Aleutians (all in western hemisphere coordinates)
-  dplyr::ungroup()
+# dat1 <- dat
 
-# Not sure how to incorporate this code, if it is suggesting that a region needs to be removed- EHM 4/2024 # TOLEDO
 
-# for GOA in 2001 missed 27 strata and will be removed, stratum 50 is
-# missing from 3 years but will be kept, 410, 420, 430, 440, 450 are missing 
-#from 3 years but will be kept, 510 and higher are missing from 7 or more years
-# of data and will be removed
-# test <- goa %>%
-#   filter(year != 2001) %>% 
-#   select(stratum, year) %>% 
-#   distinct() %>% 
-#   group_by(stratum) %>% 
-#   summarise(count = n())%>%
-#   filter(count >= 11)  
+# Save full table --------------------------------------------------------------
+
+# dplyr::filter(!(SURVEY_DEFINITION_ID == 98 & YEAR %in% 1982:1987)) %>% # remove stratum in EBS that are missing from 1982-1987. However, I would reconsider doing this, you loose out on so much data!  - EHM 4/2024 # TOLEDO
+# dplyr::filter(SURVEY_DEFINITION_ID != 78) %>% # remove bering sea slope survey 
 
 write.csv(x = dat, here::here("data_processing_rcode/data/afsc.csv")) # you can call it anything you like, but I figured that this would be easy to find and rename
 

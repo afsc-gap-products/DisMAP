@@ -261,6 +261,313 @@ eventoodd <- function(x) {
 # replaces everything (?) in if (FALSE) below!
 read.csv(file = here::here("data_processing_rcode/data/afsc.csv")) # you can call it anything you like, but I figured that this would be easy to find and rename
 
+dplyr::select(region, 
+              year = YEAR, 
+              haulid = HAULJOIN,
+              lat = LATITUDE_DD_START, 
+              lon = LONGITUDE_DD_START, 
+              stratum = STRATUM, 
+              # stratumarea = ----, # you don't need this anymore, right? I can get it for you if you do, but this seems like a hold over from an earlier time- EHM 4/2024 # TOLEDO
+              depth = DEPTH_M, 
+              spp = SCIENTIFIC_NAME, # since you have worms codes here, I don't think you need these anymore? we should just be able to bind to your pre-approved species list?  - EHM 4/2024 # TOLEDO
+              common = COMMON_NAME, # since you have worms codes here, I don't think you need these anymore? we should just be able to bind to your pre-approved species list?  - EHM 4/2024 # TOLEDO
+              wtcpue = CPUE_KGHA# , # I would consider moving everthing from HA to KM2 - EHM 4/2024 # TOLEDO
+              # worms = WORMS # I've added this column
+) %>% 
+  # remove rows that are eggs
+  dplyr::filter(spp != "" &
+                  # remove all spp that contain the word "egg"
+                  !grepl("egg", spp),
+                !grepl("Polychaete tubes", spp)) %>%   
+  # if you choose to keep the common name column - EHM 4/2024 # TOLEDO
+  dplyr::mutate(
+    stratumarea = NA, # remvoed above because the new data tables dont provide this, but I can get it for you if you need it. - EHM 4/2024 # TOLEDO
+    # Create a unique haulid
+    # haulid = paste(formatC(vesselID, width=3, flag=0), Cruise, formatC(Haul, width=3, flag=0), sep='-'), 
+    lon = ifelse(lon > 0, lon - 360, lon), 
+    # change -9999 wtcpue to NA
+    # wtcpue = ifelse(wtcpue == "-9999", NA, wtcpue),  # hopefully not in there anymore?? please let me know if you find any of these hanging around!  - EHM 4/2024 # TOLEDO
+    
+    # adjust spp names
+    # add species names for two rockfish complexes
+    spp = ifelse(grepl("Rougheye and Blackspotted Rockfish Unid.", common), "Sebastes melanostictus and S. aleutianus", spp),
+    spp = ifelse(grepl("Dusky and Dark Rockfishes Unid.", common), "Sebastes variabilis and S. ciliatus", spp), 
+    # catch A. stomias and A. evermanii (as of 2018 both spp appear as "valid" so not sure why they are being changed)
+    spp = ifelse(grepl("Atheresthes", spp), "Atheresthes stomias and A. evermanni", spp), 
+    # catch L. polystryxa (valid in 2018), and L. bilineata (valid in 2018)
+    spp = ifelse(grepl("Lepidopsetta", spp), "Lepidopsetta sp.", spp),
+    # catch M. jaok (valid in 2018), M. niger (valid in 2018), M. polyacanthocephalus (valid in 2018), M. quadricornis (valid in 2018), M. verrucosus (changed to scorpius), M. scorpioides (valid in 2018), M. scorpius (valid in 2018) (M. scorpius is in the data set but not on the list so it is excluded from the change)
+    #spp = ifelse(grepl("Myoxocephalus", spp ) & !grepl("scorpius", spp), "Myoxocephalus sp.", spp),
+    # catch B. maculata (valid in 2018), abyssicola (valid in 2018), aleutica (valid in 2018), interrupta (valid in 2018), lindbergi (valid in 2018), mariposa (valid in 2018), minispinosa (valid in 2018), parmifera (valid in 2018), smirnovi (valid in 2018), cf parmifera (Orretal), spinosissima (valid in 2018), taranetzi (valid in 2018), trachura (valid in 2018), violacea (valid in 2018)
+    # B. panthera is not on the list of spp to change
+    spp = ifelse(grepl("Bathyraja", spp), 'Bathyraja sp.', spp),
+    # catch S. melanostictus and S. aleutianus (blackspotted & rougheye), combined into one complex
+    spp = ifelse(grepl("Sebastes melanostictus", spp)|grepl("Sebastes aleutianus", spp), "Sebastes melanostictus and S. aleutianus", spp),
+    # catch S. variabilis and S. ciliatus (dusky + dark rockfish), combined into one complex
+    spp = ifelse(grepl("Sebastes variabilis", spp)|grepl("Sebastes ciliatus", spp), "Sebastes variabilis and S. ciliatus", spp), 
+    spp = ifelse(grepl("Hippoglossoides", spp), "Hippoglossoides elassodon and H. robustus", spp)
+  ) %>% 
+  # dplyr::select(region, haulid, year, lat, lon, stratum, stratumarea, depth, spp, wtcpue) %>% # Should be redundant
+  readr::type_convert(col_types = cols(
+    lat = col_double(),
+    lon = col_double(),
+    year = col_integer(),
+    wtcpue = col_double(),
+    spp = col_character(),
+    depth = col_integer(),
+    haulid = col_character()
+  )) %>% 
+  dplyr::group_by(region, haulid, stratum, stratumarea, year, lat, lon, depth, spp) %>% 
+  dplyr::summarise(wtcpue = sum(wtcpue, na.rm = TRUE)) %>% 
+  # Calculate a corrected longitude for Aleutians (all in western hemisphere coordinates)
+  dplyr::ungroup()
+
+# test data consistentcy -------------------------------------------------------
+
+### AI -------------------------------------------------------------------------
+
+ai <- dat1 %>% 
+  dplyr::filter(region == "Aleutian Islands")
+
+if (HQ_DATA_ONLY == TRUE){
+  
+  # look at the graph and make sure decisions to keep or eliminate data make sense
+  
+  # plot the strata by year
+  
+  p1 <- ai %>% 
+    select(stratum, year) %>% 
+    ggplot(aes(x = as.factor(stratum), y = as.factor(year)))   +
+    geom_jitter()
+  
+  p2 <- ai %>%
+    select(lat, lon) %>% 
+    ggplot(aes(x = lon, y = lat)) +
+    geom_jitter()
+  
+  test <- ai %>% 
+    select(stratum, year) %>% 
+    distinct() %>% 
+    group_by(stratum) %>% 
+    summarise(count = n()) %>% 
+    filter(count >= 13)
+  
+  # how many rows will be lost if only stratum trawled ever year are kept?
+  test2 <- ai %>% 
+    filter(stratum %in% test$stratum)
+  nrow(ai) - nrow(test2)
+  # percent that will be lost
+  print((nrow(ai) - nrow(test2))/nrow(ai))
+  # 0% of rows are removed (Each strata is sampled each year!)
+  ai_fltr <- ai %>% 
+    filter(stratum %in% test$stratum)
+  
+  # plot the results after editing
+  p3 <- ai_fltr %>% 
+    select(stratum, year) %>% 
+    ggplot(aes(x = as.factor(stratum), y = as.factor(year)))   +
+    geom_jitter()
+  
+  p4 <- ai_fltr %>%
+    select(lat, lon) %>% 
+    ggplot(aes(x = lon, y = lat)) +
+    geom_jitter()
+  
+  if (HQ_PLOTS == TRUE){
+    temp <- grid.arrange(p1, p2, p3, p4, nrow = 2)
+    ggsave(plot = temp, filename = here::here("output/plots", "ai_hq_dat_removed.png"))
+    rm(temp)
+  }
+  rm(test, test2, p1, p2, p3, p4)
+}# clean up
+rm(ai_data, ai_strata, files, temp_fixed, temp_csv)
+
+### GOA ------------------------------------------------------------------------
+
+goa <- dat1 %>% 
+  dplyr::filter(region == "Gulf of Alaska")
+
+# Not sure how to incorporate this code, if it is suggesting that a region needs to be removed- EHM 4/2024 # TOLEDO
+
+# for GOA in 2001 missed 27 strata and will be removed, stratum 50 is
+# missing from 3 years but will be kept, 410, 420, 430, 440, 450 are missing 
+#from 3 years but will be kept, 510 and higher are missing from 7 or more years
+# of data and will be removed
+# test <- goa %>%
+#   filter(year != 2001) %>% 
+#   select(stratum, year) %>% 
+#   distinct() %>% 
+#   group_by(stratum) %>% 
+#   summarise(count = n())%>%
+#   filter(count >= 11)  
+
+if (HQ_DATA_ONLY == TRUE){
+  # look at the graph and make sure decisions to keep or eliminate data make sense
+  
+  p1 <- goa %>% 
+    select(stratum, year) %>% 
+    ggplot(aes(x = as.factor(stratum), y = as.factor(year)))   +
+    geom_jitter()
+  
+  p2 <- goa %>%
+    select(lat, lon) %>% 
+    ggplot(aes(x = lon, y = lat)) +
+    geom_jitter()
+  
+  # for GOA in 2001 missed 27 strata and will be removed, stratum 50 is
+  # missing from 3 years but will be kept, 410, 420, 430, 440, 450 are missing 
+  #from 3 years but will be kept, 510 and higher are missing from 7 or more years
+  # of data and will be removed
+  test <- goa %>%
+    filter(year != 2001) %>% 
+    select(stratum, year) %>% 
+    distinct() %>% 
+    group_by(stratum) %>% 
+    summarise(count = n())%>%
+    filter(count >= 11)  
+  
+  # how many rows will be lost if only stratum trawled ever year and the ones mentioned
+  # above are kept?
+  test2 <- goa %>% 
+    filter(stratum %in% test$stratum)
+  nrow(goa) - nrow(test2)
+  # percent that will be lost
+  print ((nrow(goa) - nrow(test2))/nrow(goa))
+  
+  goa_fltr <- goa %>% 
+    filter(stratum %in% test$stratum) %>%
+    filter(year != 2001)
+  
+  p3 <-  goa_fltr %>% 
+    select(stratum, year) %>% 
+    ggplot(aes(x = as.factor(stratum), y = as.factor(year)))   +
+    geom_jitter()
+  
+  p4 <- goa_fltr %>%
+    select(lat, lon) %>% 
+    ggplot(aes(x = lon, y = lat)) +
+    geom_jitter()
+  
+  if (HQ_PLOTS == TRUE){
+    temp <- grid.arrange(p1, p2, p3, p4, nrow = 2)
+    ggsave(plot = temp, filename = here::here("output/plots", "goa_hq_dat_removed.png"))
+    
+    rm(temp)
+  }
+  rm(test, test2, p1, p2, p3, p4)
+}
+rm(files, goa_data, goa_strata)
+
+### EBS ------------------------------------------------------------------------
+
+ebs <- dat1 %>% 
+  dplyr::filter(region == "Eastern Bering Sea")
+
+if (HQ_DATA_ONLY == TRUE){
+  # look at the graph and make sure decisions to keep or eliminate data make sense
+  
+  p1 <- ebs %>% 
+    select(stratum, year) %>% 
+    ggplot(aes(x = as.factor(stratum), y = as.factor(year)))   +
+    geom_jitter()
+  
+  p2 <- ebs %>%
+    select(lat, lon) %>% 
+    ggplot(aes(x = lon, y = lat)) +
+    geom_jitter()
+  
+  test <- ebs %>% 
+    select(stratum, year) %>% 
+    distinct() %>% 
+    group_by(year) %>% 
+    summarise(count = n())  %>% 
+    filter(count >= 12)
+  
+  # how many rows will be lost if only years where all stratum sampled are kept?
+  test2 <- ebs %>% 
+    filter(year %in% test$year)
+  nrow(ebs) - nrow(test2)
+  # percent that will be lost
+  print((nrow(ebs) - nrow(test2))/nrow(ebs))
+  # 8% of rows are removed
+  ebs_fltr <- ebs %>% 
+    filter(year %in% test$year) 
+  
+  p3 <- ebs_fltr %>% 
+    select(stratum, year) %>% 
+    ggplot(aes(x = as.factor(stratum), y = as.factor(year))) +
+    geom_jitter()
+  
+  p4 <- ebs_fltr %>%
+    select(lat, lon) %>% 
+    ggplot(aes(x = lon, y = lat)) +
+    geom_jitter()
+  
+  if (HQ_PLOTS == TRUE){
+    temp <- grid.arrange(p1, p2, p3, p4, nrow = 2)
+    ggsave(plot = temp, filename = here::here("output/plots", "ebs_hq_dat_removed.png"))
+    rm(temp)
+  }
+  rm(test, test2, p1, p2, p3, p4)
+}
+# clean up
+rm(files, ebs_data, ebs_strata)
+
+### NBS ------------------------------------------------------------------------
+
+nbs <- dat1 %>% 
+  dplyr::filter(region == "Northern Bering Sea")
+
+if (HQ_DATA_ONLY == TRUE){
+  
+  # look at the graph and make sure decisions to keep or eliminate data make sense
+  
+  p1 <- nbs %>% 
+    select(stratum, year) %>% 
+    ggplot(aes(x = as.factor(stratum), y = as.factor(year)))   +
+    geom_jitter()
+  
+  p2 <- nbs %>%
+    select(lat, lon) %>% 
+    ggplot(aes(x = lon, y = lat)) +
+    geom_jitter()
+  
+  test <- nbs %>%
+    select(stratum, year) %>% 
+    distinct() %>% 
+    group_by(stratum) %>% 
+    summarise(count = n())%>%
+    filter(count >= 5)  
+  
+  # how many rows will be lost if only stratum trawled ever year aare kept?
+  test2 <- nbs %>% 
+    filter(stratum %in% test$stratum)
+  nrow(nbs) - nrow(test2)
+  # percent that will be lost
+  print ((nrow(nbs) - nrow(test2))/nrow(nbs))
+  
+  nbs_fltr <- nbs %>% 
+    filter(stratum %in% test$stratum)
+  
+  p3 <-  nbs_fltr %>% 
+    select(stratum, year) %>% 
+    ggplot(aes(x = as.factor(stratum), y = as.factor(year)))   +
+    geom_jitter()
+  
+  p4 <- nbs_fltr %>%
+    select(lat, lon) %>% 
+    ggplot(aes(x = lon, y = lat)) +
+    geom_jitter()
+  
+  if (HQ_PLOTS == TRUE){
+    temp <- grid.arrange(p1, p2, p3, p4, nrow = 2)
+    ggsave(plot = temp, filename = here::here("output/plots", "nbs_hq_dat_removed.png"))
+    
+    rm(temp)
+  }
+  rm(test, test2, p1, p2, p3, p4)
+}
+
 # Didn't want to delete this, but needed it to not run. - EHM 4/2024
 if (FALSE) {
 # Compile AI =====================================================
