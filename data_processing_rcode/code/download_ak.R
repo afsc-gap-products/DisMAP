@@ -159,7 +159,7 @@ species <- readr::read_csv(file = here::here("data_processing_rcode/data/gap_pro
 ### presence only data ---------------------------------------------------------
 dat <- 
   # join haul and catch data to unique species by survey table
-  dplyr::full_join(haul, catch) %>% 
+  dplyr::left_join(haul, catch) %>% 
   # join species data to unique species by survey table
   dplyr::left_join(species) %>% 
   # modify zero-filled rows
